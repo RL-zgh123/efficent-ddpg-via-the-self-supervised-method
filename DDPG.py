@@ -24,8 +24,61 @@ RENDER = False
 OUTPUT_GRAPH = True
 ENV_NAME = 'Pendulum-v0'
 
-###############################  Actor  ####################################
+class AssistNet(object):
+    def __init__(self, sess, state_dim, phi_dim, action_dim, learning_rate):
+        self.sess = sess
+        self.a_dim = action_dim
+        self.s_dim = state_dim
+        self.p_dim = phi_dim
+        self.lr = learning_rate
 
+        self.init_w = tf.random_normal_initializer(0., 0.3)
+        self.init_b = tf.constant_initializer(0.1)
+
+        # build placeholder
+        self._build_ph()
+
+        # build phi(s)
+        with tf.variable_scope("phi") as scope:
+            self.phi_s = self._build_phi(self.s)
+            scope.reuse_variables()
+            self.phi_s_ = self._build_phi(self.s_)
+
+        # predict action
+        with tf.variable_scope("predict_action") as scope:
+            self.pre_a = self._predict_action()
+
+    def _build_ph(self):
+        self.s = tf.placeholder(tf.float32, shape=[None, state_dim], name='s')
+        self.s_ = tf.placeholder(tf.float32, shape=[None, state_dim], name='s_')
+        self.a = tf.placeholder(tf.float32, shape=[None, action_dim], name='a')
+
+    def _build_phi(self, s, scope, trainable):
+        with tf.variable_scope(scope) as scope:
+            phi = tf.layers.dense(s, self.p_dim, activation=tf.nn.relu,
+                                  kernel_initializer=self.init_w, bias_initializer=self.init_b,
+                                  name='l1',
+                                  trainable=trainable)
+        return phi
+
+    def _predict_action(self, scope, trainable):
+        with tf.variable_scope(scope) as scope:
+            unit_phi_s = tf.concat([self.phi_s, self.phi_s_])
+            pre_a = tf.layers.dense(unit_phi_s, self.a_dim, activation=tf.nn.relu,
+                                    kernel_initializer=self.init_w,
+                                    bias_initializer=self.init_b,
+                                    name='l2',
+                                    trainable=trainable
+                                    )
+        return pre_a
+
+    def learn(self, s, s_, a):
+        self.loss = tf.reduce_mean(tf.squared_difference(self.a, self.pre_a))
+        self.train_op = tf.train.AdamOptimizer(self.lr).minimize(self.loss)
+        sess.run(self.train_op, {self.s: s, self.s_: s_, self.a: a})
+
+    def get_phi(self, s, s_):
+        return sess.run([self.phi_s, self.phi_s_], {self.s: s, self.s_: s_})
 
 class Actor(object):
     def __init__(self, sess, action_dim, action_bound, learning_rate, replacement):
@@ -37,10 +90,7 @@ class Actor(object):
         self.t_replace_counter = 0
 
         with tf.variable_scope('Actor'):
-            # input s, output a
             self.a = self._build_net(S, scope='eval_net', trainable=True)
-
-            # input s_, output a, get a_ for critic
             self.a_ = self._build_net(S_, scope='target_net', trainable=False)
 
         self.e_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='Actor/eval_net')
@@ -52,6 +102,8 @@ class Actor(object):
         else:
             self.soft_replace = [tf.assign(t, (1 - self.replacement['tau']) * t + self.replacement['tau'] * e)
                                  for t, e in zip(self.t_params, self.e_params)]
+
+
 
     def _build_net(self, s, scope, trainable):
         with tf.variable_scope(scope):
@@ -92,8 +144,6 @@ class Actor(object):
             opt = tf.train.AdamOptimizer(-self.lr)  # (- learning rate) for ascent policy
             self.train_op = opt.apply_gradients(zip(self.policy_grads, self.e_params))
 
-
-###############################  Critic  ####################################
 
 class Critic(object):
     def __init__(self, sess, state_dim, action_dim, learning_rate, gamma, replacement, a, a_):
@@ -186,6 +236,7 @@ if __name__ == '__main__':
     env.seed(1)
 
     state_dim = env.observation_space.shape[0]
+    phi_dim = 30
     action_dim = env.action_space.shape[0]
     action_bound = env.action_space.high
 
