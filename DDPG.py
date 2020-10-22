@@ -50,7 +50,7 @@ class AssistNet(object):
             self.pre_a = self._predict_action()
 
         self._build_train_op()
-        # self.sess.run(tf.global_variables_initializer())
+        self.sess.run(tf.global_variables_initializer())
 
     def _build_ph(self):
         self.s = tf.placeholder(tf.float32, shape=[None, state_dim], name='s')
@@ -94,7 +94,7 @@ class AssistNet(object):
 
 class Actor(object):
     def __init__(self, sess, phi_dim, action_dim, action_bound, learning_rate, replacement):
-        self.sess = sess
+        self.sess = tf.Session()
         self.a_dim = action_dim
         self.p_dim = phi_dim
         self.action_bound = action_bound
@@ -105,9 +105,9 @@ class Actor(object):
 
 
         with tf.variable_scope('Actor'):
-            # self._build_ph()
-            self.a = self._build_net(PHI, scope='eval_net', trainable=True)
-            self.a_ = self._build_net(PHI_, scope='target_net', trainable=False)
+            self._build_ph()
+            self.a = self._build_net(self.phi_s, scope='eval_net', trainable=True)
+            self.a_ = self._build_net(self.phi_s_, scope='target_net', trainable=False)
 
         self.e_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='Actor/eval_net')
         self.t_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='Actor/target_net')
@@ -119,7 +119,7 @@ class Actor(object):
             self.soft_replace = [tf.assign(t, (1 - self.replacement['tau']) * t + self.replacement['tau'] * e)
                                  for t, e in zip(self.t_params, self.e_params)]
 
-        # self.sess.run(tf.global_variables_initializer())
+        self.sess.run(tf.global_variables_initializer())
 
     def _build_ph(self):
         self.phi_s = tf.placeholder(tf.float32, [None, self.p_dim], name='phi_s')
@@ -139,7 +139,7 @@ class Actor(object):
         return scaled_a
 
     def learn(self, phi_s):   # batch update
-        self.sess.run(self.train_op, feed_dict={PHI: phi_s})
+        self.sess.run(self.train_op, feed_dict={self.phi_s: phi_s})
 
         if self.replacement['name'] == 'soft':
             self.sess.run(self.soft_replace)
@@ -150,7 +150,7 @@ class Actor(object):
 
     def choose_action(self, phi_s):
         # phi_s = phi_s[np.newaxis, :]    # single state
-        return self.sess.run(self.a, feed_dict={PHI: phi_s})[0]  # single action
+        return self.sess.run(self.a, feed_dict={self.phi_s: phi_s})[0]  # single action
 
     def add_grad_to_graph(self, a_grads):
         with tf.variable_scope('policy_grads'):
@@ -167,19 +167,19 @@ class Actor(object):
 
 class Critic(object):
     def __init__(self, sess, phi_dim, action_dim, learning_rate, gamma, replacement, a, a_):
-        self.sess = sess
+        self.sess = tf.Session()
         self.p_dim = phi_dim
         self.a_dim = action_dim
         self.lr = learning_rate
         self.gamma = gamma
         self.replacement = replacement
 
-        # self._build_ph()
+        self._build_ph()
 
         with tf.variable_scope('Critic'):
             self.a = a
-            self.q = self._build_net(PHI, self.a, 'eval_net', trainable=True)
-            self.q_ = self._build_net(PHI_, a_, 'target_net', trainable=False)    # target_q is based on a_ from Actor's target_net
+            self.q = self._build_net(self.phi_s, self.a, 'eval_net', trainable=True)
+            self.q_ = self._build_net(self.phi_s_, a_, 'target_net', trainable=False)    # target_q is based on a_ from Actor's target_net
 
             self.e_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='Critic/eval_net')
             self.t_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='Critic/target_net')
@@ -203,7 +203,7 @@ class Critic(object):
             self.soft_replacement = [tf.assign(t, (1 - self.replacement['tau']) * t + self.replacement['tau'] * e)
                                      for t, e in zip(self.t_params, self.e_params)]
 
-        # self.sess.run(tf.global_variables_initializer())
+        self.sess.run(tf.global_variables_initializer())
 
     def _build_ph(self):
         self.phi_s = tf.placeholder(tf.float32, [None, self.p_dim], name='phi_s')
@@ -230,7 +230,7 @@ class Critic(object):
 
     def learn(self, phi_s, a, r, phi_s_):
         print(phi_s, phi_s_)
-        self.sess.run(self.train_op, feed_dict={PHI: phi_s, self.a: a, self.r: r, PHI_: phi_s_})
+        self.sess.run(self.train_op, feed_dict={self.phi_s: phi_s, self.a: a, self.r: r, self.phi_s_: phi_s_, Actor.phi_s: phi_s})
         if self.replacement['name'] == 'soft':
             self.sess.run(self.soft_replacement)
         else:
@@ -270,16 +270,12 @@ if __name__ == '__main__':
     action_bound = env.action_space.high
 
     # all placeholder for tf
-    with tf.name_scope('S'):
-        S = tf.placeholder(tf.float32, shape=[None, state_dim], name='s')
-    with tf.name_scope('R'):
-        R = tf.placeholder(tf.float32, [None, 1], name='r')
-    with tf.name_scope('S_'):
-        S_ = tf.placeholder(tf.float32, shape=[None, state_dim], name='s_')
-    with tf.name_scope('PHI'):
-        PHI = tf.placeholder(tf.float32, shape=[None, phi_dim], name='phi')
-    with tf.name_scope('PHI_'):
-        PHI_ = tf.placeholder(tf.float32, shape=[None, phi_dim], name='phi_')
+    # with tf.name_scope('S'):
+    #     S = tf.placeholder(tf.float32, shape=[None, state_dim], name='s')
+    # with tf.name_scope('R'):
+    #     R = tf.placeholder(tf.float32, [None, 1], name='r')
+    # with tf.name_scope('S_'):
+    #     S_ = tf.placeholder(tf.float32, shape=[None, state_dim], name='s_')
 
 
     sess = tf.Session()
@@ -296,7 +292,7 @@ if __name__ == '__main__':
         critic = Critic(sess, phi_dim, action_dim, LR_C, GAMMA, REPLACEMENT, actor.a, actor.a_)
         actor.add_grad_to_graph(critic.a_grads)
 
-    sess.run(tf.global_variables_initializer())
+    # sess.run(tf.global_variables_initializer())
 
     M = Memory(MEMORY_CAPACITY, dims=2 * (state_dim + phi_dim) + action_dim + 1)
 
