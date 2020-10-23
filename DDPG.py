@@ -8,12 +8,12 @@ tf.set_random_seed(1)
 
 #####################  hyper parameters  ####################
 
-MAX_EPISODES = 200
+MAX_EPISODES = 1000
 MAX_EP_STEPS = 200
 LR_S = 0.001    # learning rate for assistNet
 LR_A = 0.001    # learning rate for actor
 LR_C = 0.001    # learning rate for critic
-GAMMA = 0.9     # reward discount
+GAMMA = 0.99    # reward discount
 REPLACEMENT = [
     dict(name='soft', tau=0.01),
     dict(name='hard', rep_iter_a=600, rep_iter_c=500)
@@ -94,7 +94,7 @@ class AssistNet(object):
 
 class Actor(object):
     def __init__(self, sess, phi_dim, action_dim, action_bound, learning_rate, replacement):
-        self.sess = tf.Session()
+        self.sess = sess
         self.a_dim = action_dim
         self.p_dim = phi_dim
         self.action_bound = action_bound
@@ -119,7 +119,7 @@ class Actor(object):
             self.soft_replace = [tf.assign(t, (1 - self.replacement['tau']) * t + self.replacement['tau'] * e)
                                  for t, e in zip(self.t_params, self.e_params)]
 
-        self.sess.run(tf.global_variables_initializer())
+        # self.sess.run(tf.global_variables_initializer())
 
     def _build_ph(self):
         self.phi_s = tf.placeholder(tf.float32, [None, self.p_dim], name='phi_s')
@@ -166,15 +166,17 @@ class Actor(object):
 
 
 class Critic(object):
-    def __init__(self, sess, phi_dim, action_dim, learning_rate, gamma, replacement, a, a_):
-        self.sess = tf.Session()
+    def __init__(self, sess, phi_dim, action_dim, learning_rate, gamma, replacement, a, a_, phi, phi_):
+        self.sess = sess
         self.p_dim = phi_dim
         self.a_dim = action_dim
         self.lr = learning_rate
         self.gamma = gamma
         self.replacement = replacement
 
-        self._build_ph()
+        self.phi_s = phi
+        self.phi_s_ = phi_
+        self.r = tf.placeholder(tf.float32, [None, 1], name='r')
 
         with tf.variable_scope('Critic'):
             self.a = a
@@ -203,12 +205,12 @@ class Critic(object):
             self.soft_replacement = [tf.assign(t, (1 - self.replacement['tau']) * t + self.replacement['tau'] * e)
                                      for t, e in zip(self.t_params, self.e_params)]
 
-        self.sess.run(tf.global_variables_initializer())
+        # self.sess.run(tf.global_variables_initializer())
 
-    def _build_ph(self):
-        self.phi_s = tf.placeholder(tf.float32, [None, self.p_dim], name='phi_s')
-        self.phi_s_ = tf.placeholder(tf.float32, [None, self.p_dim], name='phi_s_')
-        self.r = tf.placeholder(tf.float32, [None, 1], name='r')
+    # def _build_ph(self):
+    #     self.phi_s = phi
+    #     self.phi_s_ = tf.placeholder(tf.float32, [None, self.p_dim], name='phi_s_')
+    #     self.r = tf.placeholder(tf.float32, [None, 1], name='r')
 
     def _build_net(self, phi_s, a, scope='net0', trainable=True):
         with tf.variable_scope(scope):
@@ -217,20 +219,19 @@ class Critic(object):
 
             with tf.variable_scope('l1'):
                 n_l1 = 30
-                # w1_s = tf.get_variable('w1_s', [self.p_dim, n_l1], initializer=init_w, trainable=trainable)
-                # w1_a = tf.get_variable('w1_a', [self.a_dim, n_l1], initializer=init_w, trainable=trainable)
-                # b1 = tf.get_variable('b1', [1, n_l1], initializer=init_b, trainable=trainable)
-                # net = tf.nn.relu(tf.matmul(phi_s, w1_s) + tf.matmul(a, w1_a) + b1)
-                sa = tf.concat([phi_s, a], axis=1)
-                net = tf.layers.dense(sa, n_l1, kernel_initializer=init_w, bias_initializer=init_b, trainable=trainable)
+                w1_s = tf.get_variable('w1_s', [self.p_dim, n_l1], initializer=init_w, trainable=trainable)
+                w1_a = tf.get_variable('w1_a', [self.a_dim, n_l1], initializer=init_w, trainable=trainable)
+                b1 = tf.get_variable('b1', [1, n_l1], initializer=init_b, trainable=trainable)
+                net = tf.nn.relu(tf.matmul(phi_s, w1_s) + tf.matmul(a, w1_a) + b1)
+                # sa = tf.concat([phi_s, a], axis=1)
+                # net = tf.layers.dense(sa, n_l1, kernel_initializer=init_w, bias_initializer=init_b, trainable=trainable)
 
             with tf.variable_scope('q'):
                 q = tf.layers.dense(net, 1, kernel_initializer=init_w, bias_initializer=init_b, trainable=trainable)   # Q(s,a)
         return q
 
     def learn(self, phi_s, a, r, phi_s_):
-        print(phi_s, phi_s_)
-        self.sess.run(self.train_op, feed_dict={self.phi_s: phi_s, self.a: a, self.r: r, self.phi_s_: phi_s_, Actor.phi_s: phi_s})
+        self.sess.run(self.train_op, feed_dict={self.phi_s: phi_s, self.a: a, self.r: r, self.phi_s_: phi_s_})
         if self.replacement['name'] == 'soft':
             self.sess.run(self.soft_replacement)
         else:
@@ -281,18 +282,12 @@ if __name__ == '__main__':
     sess = tf.Session()
 
     # Create assistnet, actor, critic.
-    # with tf.name_scope('assist'):
-    with tf.Graph().as_default():
-        assist = AssistNet(sess, state_dim, phi_dim, action_dim, LR_S)
-    # with tf.name_scope('actor'):
-    with tf.Graph().as_default():
-        actor = Actor(sess, phi_dim, action_dim, action_bound, LR_A, REPLACEMENT)
-    # with tf.name_scope('critic'):
-    # with tf.Graph().as_default():
-        critic = Critic(sess, phi_dim, action_dim, LR_C, GAMMA, REPLACEMENT, actor.a, actor.a_)
-        actor.add_grad_to_graph(critic.a_grads)
+    assist = AssistNet(sess, state_dim, phi_dim, action_dim, LR_S)
+    actor = Actor(sess, phi_dim, action_dim, action_bound, LR_A, REPLACEMENT)
+    critic = Critic(sess, phi_dim, action_dim, LR_C, GAMMA, REPLACEMENT, actor.a, actor.a_, actor.phi_s, actor.phi_s_)
+    actor.add_grad_to_graph(critic.a_grads)
 
-    # sess.run(tf.global_variables_initializer())
+    sess.run(tf.global_variables_initializer())
 
     M = Memory(MEMORY_CAPACITY, dims=2 * (state_dim + phi_dim) + action_dim + 1)
 
@@ -328,10 +323,8 @@ if __name__ == '__main__':
                 b_s_ = b_M[:, -state_dim-phi_dim:-phi_dim]
                 b_ps_ = b_M[:, -phi_dim:]
 
-                print('shape', b_ps.shape, b_ps_.shape)
-
                 assist.learn(b_s, b_s_, b_a)
-                # actor.learn(b_ps)
+                actor.learn(b_ps)
                 critic.learn(b_ps, b_a, b_r, b_ps_)
 
 
