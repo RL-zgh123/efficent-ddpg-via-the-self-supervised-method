@@ -27,7 +27,7 @@ ENV_NAME = 'Pendulum-v0'
 
 class AssistNet(object):
     def __init__(self, sess, state_dim, phi_dim, action_dim, learning_rate):
-        self.sess = tf.Session()
+        self.sess = sess
         self.a_dim = action_dim
         self.s_dim = state_dim
         self.p_dim = phi_dim
@@ -50,7 +50,6 @@ class AssistNet(object):
             self.pre_a = self._predict_action()
 
         self._build_train_op()
-        self.sess.run(tf.global_variables_initializer())
 
     def _build_ph(self):
         self.s = tf.placeholder(tf.float32, shape=[None, state_dim], name='s')
