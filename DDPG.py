@@ -8,12 +8,12 @@ tf.set_random_seed(1)
 
 #####################  hyper parameters  ####################
 
-MAX_EPISODES = 1000
+MAX_EPISODES = 500
 MAX_EP_STEPS = 200
-LR_S = 0.001    # learning rate for assistNet
-LR_A = 0.001    # learning rate for actor
-LR_C = 0.001    # learning rate for critic
-GAMMA = 0.99    # reward discount
+LR_S = 0.0002    # learning rate for assistNet
+LR_A = 0.002    # learning rate for actor
+LR_C = 0.002    # learning rate for critic
+GAMMA = 0.9    # reward discount
 REPLACEMENT = [
     dict(name='soft', tau=0.01),
     dict(name='hard', rep_iter_a=600, rep_iter_c=500)
